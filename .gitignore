@@ -1,0 +1,31 @@
+# Create .gitignore
+cat > .gitignore << EOL
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+venv/
+env/
+__pycache__/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Build outputs
+dist/
+build/
+*.pyc
+EOL

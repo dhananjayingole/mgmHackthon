@@ -1,0 +1,16 @@
+# render.yaml
+services:
+  - type: web
+    name: nutribot-backend
+    runtime: python
+    repo: https://github.com/dhananjayingole/mgmHackthon
+    plan: free
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT

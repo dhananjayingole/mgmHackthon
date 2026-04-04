@@ -1,31 +1,24 @@
-# Create .gitignore
-cat > .gitignore << EOL
-# Environment variables
+# .gitignore
 .env
 .env.local
 .env.production
-
-# Dependencies
-node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
 venv/
 env/
-__pycache__/
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE files
-.vscode/
-.idea/
-
-# Build outputs
+ENV/
 dist/
 build/
-*.pyc
-EOL
+*.egg-info/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.db
+*.sqlite
+user_data/
+logs/

@@ -653,19 +653,12 @@ async def scan_fridge(
     file:    UploadFile = File(...),
     user_id: str        = Form(...),
 ):
-    """
-    Smart Fridge Scanner.
-    Detects all food items in a fridge photo, filters them against the user's
-    dietary restrictions / health conditions / allergies (using the profile
-    stored in their DB), and adds allowed items to their pantry automatically.
-    Uses Gemini Vision — Groq is NOT used here.
-    """
-    if not _global_gemini_model:
+    # ← FIXED: Check Groq, not Gemini
+    if not _global_client:
         return APIResponse(
             success=False,
             message="Fridge scanner unavailable",
-            error="GEMINI_API_KEY is not configured. "
-                  "Add it to .env and restart the server.",
+            error="GROQ_API_KEY is not configured."
         )
 
     try:
@@ -678,7 +671,7 @@ async def scan_fridge(
         scan_result, summary = fridge_scan_pipeline(
             image_bytes  = image_bytes,
             db           = svc["db"],
-            gemini_model = _global_client  ,   # ← Gemini only
+            groq_client  = _global_client,   # ← FIXED: groq_client, not gemini_model
             user_profile = user_profile,
         )
 
@@ -699,7 +692,6 @@ async def scan_fridge(
 
     except Exception as e:
         return APIResponse(success=False, message="Fridge scan failed", error=str(e))
-
 
 # ── Voice (Groq Whisper) ──────────────────────────────────────────────────────
 

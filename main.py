@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
         try:
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            _global_gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+            _global_gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite")
             print("✅ Gemini Vision ready (fridge scanner active)")
         except Exception as e:
             print(f"⚠️  Gemini init failed: {e} — fridge scanner disabled")
@@ -624,13 +624,12 @@ async def analyze_image(
     General image analysis (fridge / pantry shelf / grocery bag / bill).
     Uses Gemini Vision.
     """
-    if not _global_gemini_model:
+    if not _global_client:
         return APIResponse(
-            success=False,
-            message="Vision unavailable",
-            error="GEMINI_API_KEY is not configured. "
-                  "Add it to .env and restart the server.",
-        )
+        success=False,
+        message="Fridge scanner unavailable",
+        error="GROQ_API_KEY is not configured."
+    )
 
     from vision.fridge_scanner import fridge_scan_pipeline
 
@@ -642,7 +641,7 @@ async def analyze_image(
     scan_result, summary = fridge_scan_pipeline(
         image_bytes  = raw_bytes,
         db           = svc["db"],
-        gemini_model = _global_gemini_model,   # ← Gemini only
+        groq_client  = _global_client  ,   # ← Gemini only
         user_profile = user_profile,
     )
     scan_result["inventory_summary"] = summary
@@ -679,7 +678,7 @@ async def scan_fridge(
         scan_result, summary = fridge_scan_pipeline(
             image_bytes  = image_bytes,
             db           = svc["db"],
-            gemini_model = _global_gemini_model,   # ← Gemini only
+            gemini_model = _global_client  ,   # ← Gemini only
             user_profile = user_profile,
         )
 

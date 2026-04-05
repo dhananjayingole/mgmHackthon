@@ -178,7 +178,7 @@ def _get_gemini_model():
     try:
         import google.generativeai as genai
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash-lite")
         return model
     except Exception as e:
         print(f"[NutriBot] Gemini init failed: {e}")
@@ -346,8 +346,8 @@ def render_fridge_scanner_tab(db, gemini_model, user_profile=None):
     # ── Gemini availability check ─────────────────────────────────────────
     if gemini_model is None:
         st.error(
-            "🔴 **Fridge Scanner is disabled** — `GEMINI_API_KEY` is not set or invalid.\n\n"
-            "Add `GEMINI_API_KEY=your_key_here` to your `.env` file and restart the app.\n\n"
+            "🔴 **Fridge Scanner is disabled** — `GROQ_API_KEY` is not set or invalid.\n\n"
+            "Add `GROQ_API_KEY=your_key_here` to your `.env` file and restart the app.\n\n"
             "Get a free key at [Google AI Studio](https://aistudio.google.com/app/apikey)."
         )
         return
@@ -432,7 +432,7 @@ def render_fridge_scanner_tab(db, gemini_model, user_profile=None):
         scan_result, summary = fridge_scan_pipeline(
             image_bytes  = raw_bytes,
             db           = db,
-            gemini_model = gemini_model,
+            groq_client  = gemini_model,
             user_profile = user_profile,
         )
 
@@ -897,12 +897,11 @@ def render_sidebar(services: dict):
             pass
 
         st.divider()
+        
         groq_ok   = bool(os.getenv("GROQ_API_KEY"))
-        gemini_ok = bool(os.getenv("GEMINI_API_KEY"))
         st.markdown(
-            f"**API Status**  \n"
-            f"{'✅' if groq_ok   else '❌'} Groq (LLM + Voice)  \n"
-            f"{'✅' if gemini_ok else '⚠️'} Gemini Vision (Fridge Scanner)"
+        f"**API Status**  \n"
+        f"{'✅' if groq_ok else '❌'} Groq (LLM + Voice + Fridge Scanner)"
         )
 
         if st.button("🗑️ Clear Chat", use_container_width=True):
@@ -1388,11 +1387,10 @@ def main():
     # ══════════════════════════════════════════════════════════════════════
     with tab_fridge:
         profile      = services["profile_db"].get_full_profile()
-        gemini_model = _get_gemini_model()   # ← cached Gemini singleton
 
         render_fridge_scanner_tab(
             db           = services["db"],
-            gemini_model = gemini_model,     # ← FIX: was groq_client=services["client"]
+            gemini_model = services["client"],     # ← FIX: was groq_client=services["client"]
             user_profile = profile,
         )
 

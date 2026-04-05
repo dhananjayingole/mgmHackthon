@@ -1,18 +1,13 @@
-"""vision/fridge_scanner.py — Smart Fridge Scanner with Dietary Restriction Filtering
-Uses Google Gemini Vision API for fridge scanning.
-"""
+"""vision/fridge_scanner.py — Groq Vision based Fridge Scanner"""
 
-import base64
 import json
 import re
 import io
+import base64
 from typing import List, Dict, Any, Tuple, Optional
 from PIL import Image, ImageEnhance
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DIETARY RESTRICTION RULES
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Same DIET/HEALTH rules as before ──────────────────────────────────────
 
 DIET_FORBIDDEN: Dict[str, List[str]] = {
     "vegetarian": [
@@ -73,80 +68,49 @@ HEALTH_FORBIDDEN: Dict[str, List[str]] = {
     ],
 }
 
-CATEGORY_EXPIRY_DAYS: Dict[str, int] = {
-    "vegetables": 5,
-    "fruits": 5,
-    "dairy": 4,
-    "meat_seafood": 2,
-    "proteins": 3,
-    "beverages": 7,
-    "condiments": 30,
-    "grains": 180,
-    "snacks": 14,
-    "frozen": 60,
-    "leftovers": 3,
-    "other": 7,
-}
-
 CONDITION_KEY_MAP = {
-    "diabetes": "diabetes",
-    "diabetic": "diabetes",
-    "blood_pressure": "hypertension",
-    "high_blood_pressure": "hypertension",
-    "hypertension": "hypertension",
-    "bp": "hypertension",
-    "lactose_intolerance": "lactose_intolerance",
-    "lactose": "lactose_intolerance",
-    "gluten_intolerance": "gluten_intolerance",
-    "gluten": "gluten_intolerance",
-    "celiac": "gluten_intolerance",
-    "coeliac": "gluten_intolerance",
-    "high_cholesterol": "cholesterol",
-    "cholesterol": "cholesterol",
-    "uric_acid": "uric_acid",
-    "gout": "uric_acid",
+    "diabetes": "diabetes", "diabetic": "diabetes",
+    "blood_pressure": "hypertension", "high_blood_pressure": "hypertension",
+    "hypertension": "hypertension", "bp": "hypertension",
+    "lactose_intolerance": "lactose_intolerance", "lactose": "lactose_intolerance",
+    "gluten_intolerance": "gluten_intolerance", "gluten": "gluten_intolerance",
+    "celiac": "gluten_intolerance", "coeliac": "gluten_intolerance",
+    "high_cholesterol": "cholesterol", "cholesterol": "cholesterol",
+    "uric_acid": "uric_acid", "gout": "uric_acid",
+}
+
+CATEGORY_EXPIRY_DAYS: Dict[str, int] = {
+    "vegetables": 5, "fruits": 5, "dairy": 4, "meat_seafood": 2,
+    "proteins": 3, "beverages": 7, "condiments": 30, "grains": 180,
+    "snacks": 14, "frozen": 60, "leftovers": 3, "other": 7,
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DIETARY FILTER
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Dietary Filter ─────────────────────────────────────────────────────────
 
 def check_item_against_profile(
     item_name: str,
     profile: Dict[str, Any],
 ) -> Tuple[bool, str, str]:
-    """
-    Returns (is_allowed, reason, restriction_type).
-    restriction_type is one of: 'diet' | 'health' | 'allergy' | ''
-    """
     name_lower = item_name.lower().strip()
 
-    # 1. Diet type check
     diet_type = str(profile.get("diet_type", "")).lower().strip()
     if diet_type and diet_type in DIET_FORBIDDEN:
         for forbidden in DIET_FORBIDDEN[diet_type]:
             if forbidden in name_lower:
                 return False, f"Not suitable for your **{diet_type}** diet", "diet"
 
-    # 2. Health conditions check
     health_conditions = profile.get("health_conditions", [])
     if isinstance(health_conditions, str):
         health_conditions = [h.strip() for h in health_conditions.split(",") if h.strip()]
-
     for condition in health_conditions:
         raw_key = condition.lower().replace(" ", "_").replace("-", "_")
         condition_key = CONDITION_KEY_MAP.get(raw_key, raw_key)
         if condition_key in HEALTH_FORBIDDEN:
             for forbidden in HEALTH_FORBIDDEN[condition_key]:
                 if forbidden in name_lower:
-                    return (
-                        False,
-                        f"Not recommended for your **{condition}** condition",
-                        "health",
-                    )
+                    return False, f"Not recommended for your **{condition}** condition", "health"
 
-    # 3. Allergy check
     allergies = profile.get("allergies", [])
     if isinstance(allergies, str):
         allergies = [a.strip().lower() for a in allergies.split(",") if a.strip()]
@@ -157,31 +121,15 @@ def check_item_against_profile(
     return True, "", ""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GEMINI VISION SCAN
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Groq Vision Scan ───────────────────────────────────────────────────────
 
 def scan_fridge_image(
     image_bytes: bytes,
-    gemini_model,
+    groq_client,
     user_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Scan fridge image using Gemini Vision, apply dietary filter.
 
-    Args:
-        image_bytes:  raw image bytes (already preprocessed)
-        gemini_model: genai.GenerativeModel instance (use correct model name)
-        user_profile: user's profile dict from UserProfileDB.get_full_profile()
-
-    Returns dict with keys:
-        detected_items, allowed_items, blocked_items,
-        scene_description, suggested_recipes, nutrition_tips,
-        confidence, model_used, error (on failure)
-    """
     profile = user_profile or {}
-
-    # Build profile hint for the prompt
     diet_ctx = profile.get("diet_type", "")
     conditions = profile.get("health_conditions", [])
     if isinstance(conditions, str):
@@ -198,13 +146,10 @@ def scan_fridge_image(
     if allergies:
         profile_hint += f" Allergies: {', '.join(allergies)}."
 
-    # Open image for Gemini
-    try:
-        image = Image.open(io.BytesIO(image_bytes))
-    except Exception as e:
-        return _empty_result(f"Could not open image: {e}")
+    # Convert to base64
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
 
-    prompt = f"""You are an expert kitchen AI scanning a fridge image.{profile_hint}
+    prompt = f"""You are an expert kitchen AI scanning a food/fridge image.{profile_hint}
 
 Identify EVERY visible food and drink item. Be thorough:
 - Vegetables, fruits, leftovers in containers
@@ -212,9 +157,7 @@ Identify EVERY visible food and drink item. Be thorough:
 - Beverages (juice, soda, water, cold drinks)
 - Condiments, sauces, jams, pickles
 - Eggs, meat, fish, seafood
-- Any packaged items you can read
-- Fridge door compartments
-- Vegetable/fruit drawers
+- Any packaged items you can identify
 
 Return ONLY this JSON (no markdown, no explanation):
 
@@ -238,32 +181,45 @@ Return ONLY this JSON (no markdown, no explanation):
 Rules:
 - expiry_risk: 0.0=very fresh, 0.5=use this week, 1.0=use today
 - Estimate quantities from what is visible
-- Be honest about confidence (lower for blurry/dark images)
 - Return ONLY valid JSON, nothing else."""
 
     try:
-        response = gemini_model.generate_content([prompt, image])
-        raw = response.text.strip()
+        response = groq_client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ],
+            max_tokens=1500,
+            temperature=0.1,
+        )
 
-        # Strip any markdown fences
+        raw = response.choices[0].message.content.strip()
         raw = re.sub(r"```json\s*", "", raw)
-        raw = re.sub(r"```\s*", "", raw)
-        raw = raw.strip()
-
+        raw = re.sub(r"```\s*", "", raw).strip()
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-        if json_match:
-            vision_result = json.loads(json_match.group())
-        else:
-            vision_result = json.loads(raw)
-
-        vision_result["model_used"] = "gemini-1.5-flash"
+        vision_result = json.loads(json_match.group() if json_match else raw)
+        vision_result["model_used"] = "llama-4-scout (Groq)"
 
     except json.JSONDecodeError as e:
-        return _empty_result(f"Could not parse Gemini response as JSON: {e}")
+        return _empty_result(f"Could not parse response as JSON: {e}")
     except Exception as e:
-        return _empty_result(f"Gemini API error: {e}")
+        return _empty_result(f"Groq Vision API error: {e}")
 
-    # ── Apply dietary filter ───────────────────────────────────────────────
+    # Apply dietary filter
     allowed_items: List[Dict] = []
     blocked_items: List[Dict] = []
 
@@ -275,17 +231,21 @@ Rules:
         if is_allowed:
             allowed_items.append(item)
         else:
-            blocked_items.append({**item, "blocked_reason": reason, "restriction_type": restriction_type})
+            blocked_items.append({
+                **item,
+                "blocked_reason": reason,
+                "restriction_type": restriction_type
+            })
 
     return {
-        "detected_items":   vision_result.get("detected_items", []),
-        "allowed_items":    allowed_items,
-        "blocked_items":    blocked_items,
+        "detected_items":    vision_result.get("detected_items", []),
+        "allowed_items":     allowed_items,
+        "blocked_items":     blocked_items,
         "scene_description": vision_result.get("scene_description", ""),
         "suggested_recipes": vision_result.get("suggested_recipes", []),
-        "nutrition_tips":   vision_result.get("nutrition_tips", []),
-        "confidence":       vision_result.get("confidence", 0.0),
-        "model_used":       "gemini-1.5-flash",
+        "nutrition_tips":    vision_result.get("nutrition_tips", []),
+        "confidence":        vision_result.get("confidence", 0.0),
+        "model_used":        "llama-4-scout (Groq)",
     }
 
 
@@ -294,19 +254,16 @@ def _empty_result(error_msg: str) -> Dict[str, Any]:
         "detected_items": [], "allowed_items": [], "blocked_items": [],
         "scene_description": error_msg, "suggested_recipes": [],
         "nutrition_tips": [], "confidence": 0.0,
-        "model_used": "gemini-1.5-flash", "error": error_msg,
+        "model_used": "llama-4-scout (Groq)", "error": error_msg,
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ADD ALLOWED ITEMS TO PANTRY
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Add to Pantry ──────────────────────────────────────────────────────────
 
 def add_fridge_items_to_pantry(
     scan_result: Dict[str, Any],
     db,
 ) -> Tuple[List[str], List[str]]:
-    """Add allowed scan items to DB. Returns (added_names, failed_names)."""
     days_map = {"fresh": 7, "good": 5, "use-soon": 2, "expiring": 1}
     perishable_categories = {"vegetables", "fruits", "dairy", "meat_seafood", "leftovers", "proteins"}
     added, failed = [], []
@@ -341,9 +298,7 @@ def add_fridge_items_to_pantry(
     return added, failed
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SUMMARY BUILDER
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Summary Builder ────────────────────────────────────────────────────────
 
 def build_scan_summary(
     scan_result: Dict[str, Any],
@@ -355,7 +310,7 @@ def build_scan_summary(
     blocked = scan_result.get("blocked_items", [])
     total_detected = len(scan_result.get("detected_items", []))
     confidence_pct = int(scan_result.get("confidence", 0) * 100)
-    model = scan_result.get("model_used", "Gemini Vision")
+    model = scan_result.get("model_used", "Llama 4 Scout")
 
     lines = [
         f"## 📸 Fridge Scan Complete",
@@ -382,7 +337,6 @@ def build_scan_summary(
         by_type: Dict[str, list] = {}
         for b in blocked:
             by_type.setdefault(b.get("restriction_type", "other"), []).append(b)
-
         icons = {"diet": "🥗", "health": "🏥", "allergy": "⚠️"}
         for rtype, items in by_type.items():
             icon = icons.get(rtype, "🚫")
@@ -412,37 +366,20 @@ def build_scan_summary(
     return "\n".join(lines)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN PIPELINE — single entry point called by both backend/main.py and app.py
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Main Pipeline ──────────────────────────────────────────────────────────
 
 def fridge_scan_pipeline(
     image_bytes: bytes,
     db,
-    gemini_model,  # ← Gemini model (NOT groq_client)
+    groq_client,
     user_profile: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], str]:
-    """
-    Full pipeline: photo → preprocess → Gemini scan → dietary filter
-                   → add to pantry → markdown summary.
-
-    Args:
-        image_bytes:  raw bytes from file upload
-        db:           GroceryDatabase instance (from services["db"])
-        gemini_model: genai.GenerativeModel instance (from _global_gemini_model)
-        user_profile: dict from profile_db.get_full_profile()
-
-    Returns:
-        (scan_result_dict, markdown_summary_string)
-    """
     processed = _preprocess_image(image_bytes)
-    scan_result = scan_fridge_image(processed, gemini_model, user_profile)
+    scan_result = scan_fridge_image(processed, groq_client, user_profile)
 
     if not scan_result.get("detected_items"):
         error = scan_result.get("error", "")
-        hint = ""
-        if "API" in error or "parse" in error.lower():
-            hint = f"\n\n*Technical detail: {error}*"
+        hint = f"\n\n*Technical detail: {error}*" if error else ""
         return scan_result, (
             "## ⚠️ No Items Detected\n\n"
             "**Tips for a better scan:**\n"
@@ -459,7 +396,6 @@ def fridge_scan_pipeline(
 
 
 def _preprocess_image(image_bytes: bytes, max_size: int = 1568) -> bytes:
-    """Resize + lightly enhance image before sending to Gemini."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode in ("RGBA", "P", "LA"):
@@ -468,7 +404,6 @@ def _preprocess_image(image_bytes: bytes, max_size: int = 1568) -> bytes:
         if max(w, h) > max_size:
             ratio = max_size / max(w, h)
             img = img.resize((int(w * ratio), int(h * ratio)), Image.Resampling.LANCZOS)
-        # Slight contrast boost helps detection in dark fridges
         img = ImageEnhance.Contrast(img).enhance(1.1)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85, optimize=True)

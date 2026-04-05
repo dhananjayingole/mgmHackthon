@@ -620,16 +620,12 @@ async def analyze_image(
     context: str        = Form("fridge"),
     user_id: str        = Form("default"),
 ):
-    """
-    General image analysis (fridge / pantry shelf / grocery bag / bill).
-    Uses Gemini Vision.
-    """
     if not _global_client:
         return APIResponse(
-        success=False,
-        message="Fridge scanner unavailable",
-        error="GROQ_API_KEY is not configured."
-    )
+            success=False,
+            message="Vision unavailable",
+            error="GROQ_API_KEY is not configured."
+        )
 
     from vision.fridge_scanner import fridge_scan_pipeline
 
@@ -637,11 +633,10 @@ async def analyze_image(
     svc          = _get_svc(user_id)
     user_profile = svc["profile_db"].get_full_profile()
 
-    # Re-use the same Gemini-powered pipeline for all image contexts
     scan_result, summary = fridge_scan_pipeline(
         image_bytes  = raw_bytes,
         db           = svc["db"],
-        groq_client  = _global_client  ,   # ← Gemini only
+        groq_client  = _global_client,   # ← groq_client, NOT gemini_model
         user_profile = user_profile,
     )
     scan_result["inventory_summary"] = summary
